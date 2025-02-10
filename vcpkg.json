@@ -1,0 +1,12 @@
+{
+  "dependencies": [
+    "eigen3",
+    "fftw3",
+    "fmt",
+    "libsndfile",
+    "mpg123",
+    "opencv4",
+    "mp3lame",
+    "soxr"
+  ]
+}
