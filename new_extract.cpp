@@ -30,6 +30,7 @@ int new_wm_extract(const wchar_t* path, int* wm)
 	int wavelength;
 	int Fs;
 	int numChannels;
+	//int bitrate;
 	string extract_path = ConvertUTF16ToMBCS(path);
 	if (isMp3File(fname, extract_path))
 	{
@@ -65,10 +66,11 @@ int new_wm_extract(const wchar_t* path, int* wm)
 		}
 	}
 
-	vector<int> syn = { 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 0 };
+	//vector<int> syn = { 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 0 };
+	vector<int> syn = { 1, 1, 1, 1, 1, 0, 0, 1 };
 	vector<int> synw = syn;
 	vector<int> temp1 = syn;
-	int Lsyn = syn.size();
+	int Lsyn = 2 * syn.size();
 	int pp = 10;
 	int qq = 10;
 	vector<int> b;
@@ -77,13 +79,14 @@ int new_wm_extract(const wchar_t* path, int* wm)
 	cout << "stage 2 - params init" << endl;
 	int k1 = 5;
 	double PI = 3.1416;
-	double D = 1;
+	//double D = 1;
 	//double Delta = 0.0008;
 	//int blocklength = pp * qq * 8 * 8; // wm size 32*32
 	int blocklength = 65536;
 	int k = 0;
 	int i = 1;
 	int rela = 1;
+	int barkcode_length = k1 * syn.size();
 	vector<int> t0;
 	cout << "wavelength: " << wavelength << endl;
 	// stage 3 - position syn code
@@ -92,29 +95,46 @@ int new_wm_extract(const wchar_t* path, int* wm)
 	{
 		while (rela != 0 && (k + Lsyn * k1) < wavelength)
 		{
-			for (int mm = 0; mm < Lsyn; mm++) {
+			for (int mm = 0; mm < syn.size(); mm++) {
 				double tempmean = 0.0;
-				int front = k + mm * k1;
-				int back = k + (mm + 1) * k1 - 1;
+				int front = k + mm * k1 + 1;
+				int back = k + (mm + 1) * k1;
 				tempmean = calculateMean(audio_data, front, back, 0);
 				int temp = floor(tempmean / D);
 				synw[mm] = (temp % 2 + 2) % 2;
 				temp1[mm] = syn[mm] ^ synw[mm];
 			}
-			rela = accumulate(temp1.begin(), temp1.end(), 0);
+			//rela = accumulate(temp1.begin(), temp1.end(), 0);
+			if (accumulate(temp1.begin(), temp1.end(), 0) == 0) {
+				cout <<"found syn in "<< k << endl;
+				vector<double> barkcode_fornt10 = vector<double>(yw.begin() + k + 10, yw.begin() + k + 20);
+				vector<double> barkcode_copy = vector<double>(yw.begin() + k + barkcode_length, yw.begin() + k + 2 * barkcode_length);
+				for (int j = 0; j < barkcode_copy.size() - barkcode_fornt10.size(); j++) {
+					if (allEqual(vector<double>(barkcode_copy.begin() + j, barkcode_copy.begin() + j + barkcode_fornt10.size()), barkcode_fornt10)) {
+						t0.push_back(k - 1);
+						k = k + (Lsyn * k1) + blocklength - 1;
+						//t0[i] = k - 1;
+						i++;
+						rela = 0;
+						break;
+					}
+				}
+			}
 			k++;
 		}
-		t0.push_back(k - 1);
+		//t0.push_back(k - 1);
+		if (t0.size() >= 15)
+			break;
 		rela = 1;
-		k = k + (Lsyn * k1) + blocklength - 1;
-		i++;
+		//i++;
+		/*k = k + (Lsyn * k1) + blocklength - 1;*/
 	}
 	printIntSignal(t0, 0);
 	cout << "\nstage 4 - watermark extract" << endl;
 	vector<double> bt_temp;
 	vector<vector<double>> bt;
 	vector<int> t1;
-	for (int ii = 0; ii < i - 1; ii++)
+	for (int ii = 0; ii < t0.size(); ii++)
 	{
 		cout << "extract watermark current batch No." << ii + 1 << endl;
 		int t1_item = t0[ii] + Lsyn * k1 + 1;

@@ -7,6 +7,10 @@
 #include <windows.h>
 #include <fstream>
 #include <cmath>
+#include <numeric>
+#include <sstream>
+#include <cstring>
+#include <Eigen/Dense>
 #include "global.h"
 #include "dr_wav.h"
 #include "embed.h"
@@ -14,13 +18,11 @@
 #include "wavelet.h"
 //#include "miniaudio.h"
 #include "dr_mp3.h"
-#include <numeric>
-#include <sstream>
-#include <cstring>
 
 using namespace std;
 using namespace cv;
 namespace fs = std::filesystem;
+using namespace Eigen;
 
 const int						k1 = 5;
 const double					PI = 3.1416;
@@ -47,7 +49,7 @@ int wm_embed(const wchar_t* path, const wchar_t* save_path, const int* wm, const
 	int is_mp3 = 0;
 	int Fs = 0;
 	int wavelength = 0;
-	double D = 0.8; // init 0.2
+	//double D = 0.8; // init 0.2
 	double DD = 0.0012; // init DD 0.0012
 	double EE = 0.00002; // init EE 0.00002
 	int begin = 4095;
@@ -57,6 +59,7 @@ int wm_embed(const wchar_t* path, const wchar_t* save_path, const int* wm, const
 	fs::path fname = path;
 	fs::path s_path = save_path;
 	int channels;
+	//int bitrate;
 	vector<double> yo;
 	vector<double> yo_origin;
 	int start = 0;
@@ -82,6 +85,19 @@ int wm_embed(const wchar_t* path, const wchar_t* save_path, const int* wm, const
 
 		yo_origin = readWav(wav, wavelength, channels, Fs);
 	}
+
+	// stage 1 end
+	if ((end_time - start_time) < 25.0)
+		// The difference between start_time and end_time is not less than 25 seconds
+		return 4;
+
+	//int r = static_cast<double>(wavelength) / Fs;
+	//double embed_range = ceil(r * 0.58);
+
+	//if ((end_time - start_time) < embed_range) {
+	//	cout << "[embed error] Please increase the embedding range to " << embed_range << " seconds or more." << endl;
+	//	return 6;
+	//}
 
 	if (Fs < 44100) {
 		wstring resample_path = AddSuffixToPath(path, L"_resample");
@@ -129,11 +145,6 @@ int wm_embed(const wchar_t* path, const wchar_t* save_path, const int* wm, const
 	//	}
 	//}
 
-	// stage 1 end
-	if ((end_time - start_time) < 25.0)
-		// The difference between start_time and end_time is not less than 25 seconds
-		return 4;
-	
 	bool split = yo_origin.size() > max_wavelength;
 
 	if (yo.empty()) {
@@ -174,7 +185,8 @@ int wm_embed(const wchar_t* path, const wchar_t* save_path, const int* wm, const
 	}
 	std::vector<int> wm_vector(wm, wm + wm_size);
 	//vector<vector<int>> ww_matrix = matToVector(ww, rows, cols);
-	vector<vector<int>> ww_matrix = int_ott(wm_vector, 10);
+	int row = static_cast<int>(std::sqrt(wm_size));
+	vector<vector<int>> ww_matrix = int_ott(wm_vector, row);
 	int rows = ww_matrix.size();
 	int cols = ww_matrix[0].size();
 	cout << "ww_rows:" << ww_matrix.size() << "\t ww_cols:" << ww_matrix[0].size() << endl;
@@ -185,28 +197,23 @@ int wm_embed(const wchar_t* path, const wchar_t* save_path, const int* wm, const
 	//block_length = rows * cols * 8 * 8;
 	block_length = 65536;
 	int i = 1;
-	int left = i * (Lsyn * k1 + block_length);
+	//int left = i * (Lsyn * k1 + block_length);
 	int right = wavelength - (Lsyn * k1 + block_length) * 2;
 	vector<int> t0;
 
-	while (i * (Lsyn * k1 + block_length) < wavelength - ((Lsyn * k1 + block_length) * 2))
+	while (i * (Lsyn * k1 + block_length) < wavelength - ((Lsyn * k1 + block_length)))
 	{
 		int bb = begin + (i - 1) * (Lsyn * k1 + block_length);
-
 		cout << "\n embed barker code form " << bb << " to " << bb + Lsyn * k1 << endl;
 
 		for (int mm = 0; mm < Lsyn; mm++)
 		{
-			vector<double> temp_vec_subsyn;
-
+			//vector<double> temp_vec_subsyn;
 			int front = bb + (mm * k1);
-
 			int back = bb + ((mm + 1) * k1);
 			//计算指定范围均值
 			double tempmean = calculateMean(audio_data, front + 1, back, 0); // front = 4096 back = 4100
-			
 			int temp = static_cast<int>(floor(tempmean / D));
-
 			double tempmeanl;
 
 			if ((temp % 2 + 2) % 2 == syn[mm])
@@ -224,35 +231,32 @@ int wm_embed(const wchar_t* path, const wchar_t* save_path, const int* wm, const
 		}
 
 		t0.push_back(begin + (i * Lsyn * k1) + ((i - 1) * block_length) + 1);
-
 		vector<double> BLOCK1;
+
 		for (int j = t0[i - 1]; j < t0[i - 1] + block_length; j++)
 		{
 			BLOCK1.push_back(audio_data[j][0]);
 		}
+
 		vector<double> result = wavelet(BLOCK1, 1);
-
 		result.resize(65536);
-
 		BLOCK1.clear();
-
 		vector<vector<double>> I = ott(result, 256);
-
 		int n = I.size();  // 行数
-
 		int m = I[0].size();  // 列数
-
 		// 极坐标转换相关参数
 		int M = 4 * n;
 
-		vector<vector<double>> fp(M, vector<double>(M, 0.0));
-		vector<vector<double>> Gp(M, vector<double>(M, 0.0));
+		//vector<vector<double>> fp(M, vector<double>(M, 0.0));
+		//vector<vector<double>> Gp(M, vector<double>(M, 0.0));
 		vector<vector<double>> rr(M, vector<double>(M, 0.0));
 		vector<vector<double>> oo(M, vector<double>(M, 0.0));
-
 		// 声明和初始化 vv 和 uu 矩阵
 		vector<vector<int>> vv(M, vector<int>(M, 0));
 		vector<vector<int>> uu(M, vector<int>(M, 0));
+
+		MatrixXd fp(M, M);
+		MatrixXd Gp(M, M);
 
 		// 填充 fp 和 Gp 数组
 		for (int u = 0; u < M; u++) {
@@ -261,11 +265,10 @@ int wm_embed(const wchar_t* path, const wchar_t* save_path, const int* wm, const
 				double ooo = (2 * PI * v) / M;
 				int kk = ceil(rrr * (n / 2) * sin(ooo));
 				int ll = ceil(rrr * (n / 2) * cos(ooo));
-				fp[u][v] = I[(-1) * kk + (n / 2)][ll + (n / 2) - 1];
-				Gp[u][v] = fp[u][v] * std::sqrt(static_cast<double> (u) / (2 * M));
+				fp(u, v) = I[(-1) * kk + (n / 2)][ll + (n / 2) - 1];
+				Gp(u, v) = fp(u, v) * std::sqrt(static_cast<double> (u) / (2 * M));
 			}
 		}
-
 		// 填充 vv 和 uu 矩阵
 		for (int k = 0; k < M; k++) {
 			for (int j = 0; j < M; j++) {
@@ -273,7 +276,6 @@ int wm_embed(const wchar_t* path, const wchar_t* save_path, const int* wm, const
 				uu[k][j] = k + 1;
 			}
 		}
-		
 		// 计算 rr 和 oo 矩阵
 		for (int k = 0; k < M; k++) {
 			for (int j = 0; j < M; j++) {
@@ -340,7 +342,7 @@ int wm_embed(const wchar_t* path, const wchar_t* save_path, const int* wm, const
 		cout << "==============================================================" << endl;
 
 		i++;
-		left = i * (Lsyn * k1 + block_length);
+		//left = i * (Lsyn * k1 + block_length);
 	}
 	cout << "t0:" << endl;
 	printIntSignal(t0, 0);
@@ -373,6 +375,8 @@ int wm_embed(const wchar_t* path, const wchar_t* save_path, const int* wm, const
 		yo_origin = yo;
 	}
 	// save audio
+	//if (s_path.extension() != ".wav")
+	//	s_path.replace_extension(".wav");
 	const wchar_t* wchar_save_path = s_path.c_str(); // 使用完整的保存路径
 	if (is_mp3) {
 		save_audio_drmp3(wchar_save_path, yo_origin, Fs, channels);
@@ -412,35 +416,54 @@ vector<double> inverseWavelet(vector<double> swt_output, int level) {
 	return iswt_output;
 }
 
-void PQIMfft_embed(vector<vector<double>> &Gp, vector<vector<double>>& fp,
+void PQIMfft_embed(MatrixXd Gp, MatrixXd fp,
 					vector<int> &w1, int M, double DD, double EE, vector<vector<double>> &oo,
 					vector<vector<double>> &rr, vector<vector<double>> &Gp_watermarked)
 {
 	G_L = w1.size();
+	int row = static_cast<int>(std::sqrt(G_L));
+	vector<vector<int>> zmlist;
+	vector<vector<int>> zmlist_selected;
+	vector<complex<double>> a_nm;
+	int nmax = 0;
 
-	zhishujufenjie62(Gp, M, G_NMAX_10, G_A_NM_10, G_ZMLIST_10);
+	if (row == 10) {
+		nmax = G_NMAX_10;
+		a_nm = G_A_NM_10;
+		zmlist = G_ZMLIST_10;
+	}
+	else {
+		nmax = G_NMAX_32;
+		a_nm = G_A_NM_32;
+		zmlist = G_ZMLIST_32;
+	}
+	zhishujufenjie62(Gp, M, nmax, a_nm, zmlist);
 	// 对应的n和m
-	vector<int> index_n(G_ZMLIST_10.size(), 0);
-	vector<int> index_m(G_ZMLIST_10.size(), 0);
+	vector<int> index_n(zmlist.size(), 0);
+	vector<int> index_m(zmlist.size(), 0);
 
-	for (int i = 0; i < G_ZMLIST_10.size(); i++) {
-		index_n[i] = G_ZMLIST_10[i][0];
-		index_m[i] = G_ZMLIST_10[i][1];
+	for (int i = 0; i < zmlist.size(); i++) {
+		index_n[i] = zmlist[i][0];
+		index_m[i] = zmlist[i][1];
 	}
 	// 找到合适的嵌入位置
 	vector<int> index_suitable;
 
-	for (int i = 0; i < G_ZMLIST_10.size(); i++) {
-		// 10*10 embed range
-		if (((index_m[i] == 0) && (index_n[i] < 0)) ||
-			((index_m[i] > 0) && (index_m[i] <= 10) && (-4 <= index_n[i]) && (index_n[i] <= 4))) {
-			index_suitable.push_back(i);
+	for (int i = 0; i < zmlist.size(); i++) {
+		if (row == 10) {
+			// 10*10 embed range
+			if (((index_m[i] == 0) && (index_n[i] < 0)) ||
+				((index_m[i] > 0) && (index_m[i] <= 10) && (-4 <= index_n[i]) && (index_n[i] <= 4))) {
+				index_suitable.push_back(i);
+			}
 		}
-		// 32*32 embed range
-		//if (((index_m[i] == 0) && (index_n[i] < 0)) ||
-		//	((index_m[i] > 0) && (index_m[i] <= 30) && (-16 <= index_n[i]) && (index_n[i] <= 16))) {
-		//	index_suitable.push_back(i);
-		//}
+		else {
+			// 32*32 embed range
+			if (((index_m[i] == 0) && (index_n[i] < 0)) ||
+				((index_m[i] > 0) && (index_m[i] <= 30) && (-16 <= index_n[i]) && (index_n[i] <= 16))) {
+				index_suitable.push_back(i);
+			}
+		}
 	}
 
 	index_n.clear();
@@ -450,13 +473,14 @@ void PQIMfft_embed(vector<vector<double>> &Gp, vector<vector<double>>& fp,
 
 	index_suitable.clear();
 	// 得到在zmlist中的对应的数据，为下一步重构准备的
-	G_ZMLIST_SELECTED_10.resize(G_L, vector<int>(2, 0));
-
+	//G_ZMLIST_SELECTED_10.resize(G_L, vector<int>(2, 0));
+	zmlist_selected.resize(G_L, vector<int>(2, 0));
 	G_A_NM_SELECTED.resize(G_L, (0,0));
 
 	for (int i = 0; i < G_L; i++) {
-		G_ZMLIST_SELECTED_10[i] = G_ZMLIST_10[index_selected_embed[i]];
-		G_A_NM_SELECTED[i] = G_A_NM_10[index_selected_embed[i]];
+		//G_ZMLIST_SELECTED_10[i] = G_ZMLIST_10[index_selected_embed[i]];
+		zmlist_selected[i] = zmlist[index_selected_embed[i]];
+		G_A_NM_SELECTED[i] = a_nm[index_selected_embed[i]];
 	}
 
 	index_selected_embed.clear();
@@ -495,7 +519,8 @@ void PQIMfft_embed(vector<vector<double>> &Gp, vector<vector<double>>& fp,
 
 	//cout << "\n go to zhishujurec622" << endl;
 
-	zhishujurec622(G_A_NM_SELECTED, G_ZMLIST_SELECTED_10, M, oo, rr, G_GP_REC_BEFOREMODIFY);
+	//zhishujurec622(G_A_NM_SELECTED, G_ZMLIST_SELECTED_10, M, oo, rr, G_GP_REC_BEFOREMODIFY);
+	zhishujurec622(G_A_NM_SELECTED, zmlist_selected, M, oo, rr, G_GP_REC_BEFOREMODIFY);
 
 	G_A_NM_SELECTED.clear();
 
@@ -503,14 +528,15 @@ void PQIMfft_embed(vector<vector<double>> &Gp, vector<vector<double>>& fp,
 
 	G_GP_REC.resize(M, vector<complex<double>>(M, complex<double>(0, 0)));
 
-	zhishujurec622(G_A_NM_MODIFIED, G_ZMLIST_SELECTED_10, M, oo, rr, G_GP_REC);
+	//zhishujurec622(G_A_NM_MODIFIED, G_ZMLIST_SELECTED_10, M, oo, rr, G_GP_REC);
+	zhishujurec622(G_A_NM_MODIFIED, zmlist_selected, M, oo, rr, G_GP_REC);
 
 	G_A_NM_MODIFIED.clear();
 	G_ZMLIST_SELECTED_10.clear();
 	//水印图像
 	for (int i = 0; i < M; i++) {
 		for (int j = 0; j < M; j++) {
-			Gp_watermarked[i][j] = fp[i][j] - std::real(G_GP_REC_BEFOREMODIFY[i][j]) + std::real(G_GP_REC[i][j]);
+			Gp_watermarked[i][j] = fp(i, j) - std::real(G_GP_REC_BEFOREMODIFY[i][j]) + std::real(G_GP_REC[i][j]);
 		}
 	}
 
@@ -524,13 +550,88 @@ void PQIMfft_embed(vector<vector<double>> &Gp, vector<vector<double>>& fp,
 void zhishujurec622(vector<complex<double>> A_nm, vector<vector<int>>& zmlist_selected, int M,
 	vector<vector<double>> oo, vector<vector<double>> rr, vector<vector<complex<double>>> &result) {
 	// Initialize matrices
-	const int SIZE = 10;
-	const int COUNT_SIZE = 57;
-	vector<int> count(COUNT_SIZE, 0);
-	vector<double> temp_oo_row = oo[0];
+	//const int SIZE = static_cast<int>(std::sqrt(G_L));
+	//int offset = 20;
+	//if (SIZE == 32)
+	//	offset = 40;
+	//const int COUNT_SIZE = 57;
+	//vector<int> count(COUNT_SIZE, 0);
+	//vector<double> temp_oo_row = oo[0];
 	//vector<double> temp_rr_col;
-	vector<complex<double>> RBF1_col(M, complex<double>(0.0, 0.0));
-	vector<complex<double>> RBF2_col(M, complex<double>(0.0, 0.0));
+	//vector<complex<double>> RBF1_col(M, complex<double>(0.0, 0.0));
+	//vector<complex<double>> RBF2_col(M, complex<double>(0.0, 0.0));
+	//// Iterate through the 32x32 grid
+	//for (int x = 0; x < SIZE; x++) {
+	//	//start = clock();
+	//	for (int y = 0; y < SIZE; y++) {
+	//		int row = x * SIZE + y;
+	//		int nj = zmlist_selected[row][0];
+	//		int mc = zmlist_selected[row][1];
+	//		complex<double> A_nm_value = A_nm[row];
+	//		complex<double> conj_A_nm_value = conj(A_nm_value);
+	//		int cnt_nj = count[nj + offset]; // 32*32 +40; 10*10 +20; 16*16 +20;
+	//		double coefficient = 2 * nj * PI;
+	//		for (int i = 0; i < M; i++)
+	//		{
+	//			double rr_val = rr[i][0]; // 行相同
+	//			double image_rr_val = coefficient * rr_val;
+	//			double cos_image_rr_val = cos(image_rr_val);
+	//			double sin_image_rr_val = sin(image_rr_val);
+	//			if (cnt_nj == 0)
+	//			{
+	//				double sqrt_part = sqrt(2.0 / rr_val);
+	//				RBF1_col[i] = sqrt_part * complex<double>(cos_image_rr_val, sin_image_rr_val);
+	//				RBF2_col[i] = sqrt_part * complex<double>(cos_image_rr_val, -sin_image_rr_val);
+	//			}
+	//			complex<double> coefficient1 = A_nm_value * RBF1_col[i];
+	//			complex<double> coefficient2 = conj_A_nm_value * RBF2_col[i];
+	//			for (int j = 0; j < M; j++)
+	//			{
+	//				double oo_val = temp_oo_row[j];// 列相同
+	//				double image_rr_val = mc * oo_val;
+	//				double cos_oo_val = cos(image_rr_val);
+	//				double sin_oo_val = sin(image_rr_val);
+	//				complex<double> front = coefficient1 * complex<double>(cos_oo_val, sin_oo_val);
+	//				complex<double> behind = coefficient2 * complex<double>(cos_oo_val, -sin_oo_val);
+	//				result[i][j] += front + behind;
+	//			}
+	//		}
+	//		if (cnt_nj == 0)
+	//		{
+	//			count[nj + offset] = 1; // 32*32 +40; 10*10 +20; 16*16 +20;
+	//		}
+	//	}
+	//}
+	
+	// ========================================================================================================================
+	// Initialize matrices
+	const int SIZE = static_cast<int>(std::sqrt(G_L));
+	int offset = 20;
+	if (SIZE == 32)
+		offset = 40;
+	const int COUNT_SIZE = 57;
+	MatrixXd eigen_oo(oo.size(), oo[0].size());
+	for (size_t i = 0; i < oo.size(); ++i) {
+		for (size_t j = 0; j < oo[i].size(); ++j) {
+			eigen_oo(i, j) = oo[i][j];
+		}
+	}
+
+	MatrixXcd eigen_A_nm(A_nm.size(), 1);
+	for (size_t i = 0; i < A_nm.size(); ++i) {
+		eigen_A_nm(i, 0) = A_nm[i];
+	}
+
+	MatrixXd eigen_rr(rr.size(), rr[0].size());
+	for (size_t i = 0; i < rr.size(); ++i) {
+		for (size_t j = 0; j < rr[i].size(); ++j) {
+			eigen_rr(i, j) = rr[i][j];
+		}
+	}
+	VectorXi count = VectorXi::Zero(COUNT_SIZE);
+	VectorXd temp_oo_row = eigen_oo.row(0);
+	VectorXcd RBF1_col(M);
+	VectorXcd RBF2_col(M);
 	// Iterate through the 32x32 grid
 	for (int x = 0; x < SIZE; x++) {
 		//start = clock();
@@ -538,27 +639,28 @@ void zhishujurec622(vector<complex<double>> A_nm, vector<vector<int>>& zmlist_se
 			int row = x * SIZE + y;
 			int nj = zmlist_selected[row][0];
 			int mc = zmlist_selected[row][1];
-			complex<double> A_nm_value = A_nm[row];
+			// complex<double> A_nm_value = A_nm[row];
+			complex<double> A_nm_value = eigen_A_nm(row);
 			complex<double> conj_A_nm_value = conj(A_nm_value);
-			int cnt_nj = count[nj + 20]; // 32*32 +40; 10*10 +20; 16*16 +20;
+			int cnt_nj = count(nj + offset);
 			double coefficient = 2 * nj * PI;
 			for (int i = 0; i < M; i++)
 			{
-				double rr_val = rr[i][0]; // 行相同
+				double rr_val = eigen_rr(i, 0);
 				double image_rr_val = coefficient * rr_val;
 				double cos_image_rr_val = cos(image_rr_val);
 				double sin_image_rr_val = sin(image_rr_val);
 				if (cnt_nj == 0)
 				{
 					double sqrt_part = sqrt(2.0 / rr_val);
-					RBF1_col[i] = sqrt_part * complex<double>(cos_image_rr_val, sin_image_rr_val);
-					RBF2_col[i] = sqrt_part * complex<double>(cos_image_rr_val, -sin_image_rr_val);
+					RBF1_col(i) = sqrt_part * complex<double>(cos_image_rr_val, sin_image_rr_val);
+					RBF2_col(i) = sqrt_part * complex<double>(cos_image_rr_val, -sin_image_rr_val);
 				}
 				complex<double> coefficient1 = A_nm_value * RBF1_col[i];
 				complex<double> coefficient2 = conj_A_nm_value * RBF2_col[i];
 				for (int j = 0; j < M; j++)
 				{
-					double oo_val = temp_oo_row[j];// 列相同
+					double oo_val = temp_oo_row(j);
 					double image_rr_val = mc * oo_val;
 					double cos_oo_val = cos(image_rr_val);
 					double sin_oo_val = sin(image_rr_val);
@@ -569,78 +671,10 @@ void zhishujurec622(vector<complex<double>> A_nm, vector<vector<int>>& zmlist_se
 			}
 			if (cnt_nj == 0)
 			{
-				count[nj + 20] = 1; // 32*32 +40; 10*10 +20; 16*16 +20;
+				count(nj + offset) = 1;
 			}
 		}
 	}
-	
-	// ========================================================================================================================
-	//// 创建Eigen矩阵
-	//MatrixXcd RBF1(M, M);
-	//MatrixXcd RBF2(M, M);
-	//MatrixXcd P_NM1(M, M);
-	//MatrixXcd P_NM2(M, M);
-	//// 填充RBF矩阵
-	//RBF1.setZero();
-	//RBF2.setZero();
-	//for (int i = 0; i < M; i++) {
-	//	for (int j = 0; j < M; j++) {
-	//		double r = rr[i][j];
-	//		double theta = oo[i][j];
-	//		RBF(i, j) = sqrt(2.0 / r) * exp(complex<double>(0, theta));
-	//	}
-	//}
-	//// 填充P_NM矩阵
-	//P_NM1.setZero();
-	//P_NM2.setZero();
-	//for (size_t k = 0; k < zmlist_selected.size(); k++) {
-	//	int n = zmlist_selected[k][0];
-	//	int m = zmlist_selected[k][1];
-	//	complex<double> a_nm = A_nm[k];
-	//	for (int i = 0; i < M; i++) {
-	//		for (int j = 0; j < M; j++) {
-	//			double r = rr[i][j];
-	//			P_NM(i, j) += a_nm * pow(r, abs(n)) * exp(complex<double>(0, m * oo[i][j]));
-	//		}
-	//	}
-	//}
-	//// 执行矩阵乘法
-	//MatrixXcd Result = RBF.cwiseProduct(P_NM);
-	//// 将结果转换回vector<vector<complex<double>>>格式
-	//for (int i = 0; i < M; i++) {
-	//	for (int j = 0; j < M; j++) {
-	//		result[i][j] = Result(i, j);
-	//	}
-	//}
-	//for (int x = 0; x < SIZE; x++) {
-	//	for (int y = 0; y < SIZE; y++) {
-	//		int row = x * SIZE + y;
-	//		int nj = zmlist_selected[row][0];
-	//		int mc = zmlist_selected[row][1];
-	//		int cnt_nj = count[nj + 40];
-	//		if (cnt_nj == 0)
-	//		{
-	//			for (int i = 0; i < M; i++) {
-	//				for (int j = 0; j < M; j++) {
-	//					double r = rr[i][j];
-	//					double theta = 2 * nj * PI * r;
-	//					RBF1(i, j) = sqrt(2.0 / r) * exp(complex<double>(0, theta));
-	//					RBF2(i, j) = sqrt(2.0 / r) * exp(complex<double>(0, -theta));
-	//				}
-	//			}
-	//		}
-	//		for (int i = 0; i < M; i++) {
-	//			for (int j = 0; j < M; j++) {
-	//				double o = oo[i][j];
-	//				double image_part = mc * o;
-	//				P_NM1(i, j) = RBF1(i, j) * exp(complex<double>(0, image_part));
-	//				P_NM2(i, j) = RBF2(i, j) * exp(complex<double>(0, -image_part));
-	//				A_nm[row] * P_NM1(i, j) + P_NM2(i, j);
-	//			}
-	//		}
-	//	}
-	//}
-	//cout << "zhishujurec622 finsh" << endl;
 }
 
 // 对于复数的sign函数，返回其实部和虚部的符号组成的复数  

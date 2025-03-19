@@ -9,12 +9,14 @@
 #include <fftw3.h>
 #include <string>
 #include <complex>
+#include <Eigen/Dense>
 #include "global.h"
 #include "dr_wav.h"
 
 using namespace std;
 using namespace cv;
 namespace fs = std::filesystem;
+using namespace Eigen;
 
 vector<vector<int>> general(const vector<vector<int>>& w, int m, int n, int a, int b);
 
@@ -22,7 +24,8 @@ std::vector<std::vector<int>> matToVector(const cv::Mat& ww, int rows, int cols)
 
 void printSignal(vector<double> &signal, int length);
 
-void PQIMfft_embed(vector<vector<double>> &Gp, vector<vector<double>> &fp, vector<int> &w1, int M, double DD, double EE, vector<vector<double>> &oo, vector<vector<double>> &rr, vector<vector<double>> &Gp_watermarked);
+//void PQIMfft_embed(vector<vector<double>> &Gp, vector<vector<double>> &fp, vector<int> &w1, int M, double DD, double EE, vector<vector<double>> &oo, vector<vector<double>> &rr, vector<vector<double>> &Gp_watermarked);
+void PQIMfft_embed(MatrixXd Gp, MatrixXd fp, vector<int>& w1, int M, double DD, double EE, vector<vector<double>>& oo, vector<vector<double>>& rr, vector<vector<double>>& Gp_watermarked);
 
 void saveAudio(const char* outputFilename, std::vector<double>& yo, int sampleRate, int channels);
 // 对于复数的sign函数，返回其实部和虚部的符号组成的复数  

@@ -26,9 +26,11 @@ int new_wm_embed(const wchar_t* path, const wchar_t* save_path, const int* wm, c
 	int Fs = 0;
 	int start = -1;
 	int wavelength = 0;
-	vector<int> syn = { 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 0 };
-	const int Lsyn = syn.size();
+	//vector<int> syn = { 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 0 };
+	vector<int> syn = { 1, 1, 1, 1, 1, 0, 0, 1 };
+	const int Lsyn = 2 * syn.size();
 	int channels;
+	//int bitrate;
 	vector<double> yo;
 	vector<double> yo_origin;
 	fs::path fname = path;
@@ -51,6 +53,12 @@ int new_wm_embed(const wchar_t* path, const wchar_t* save_path, const int* wm, c
 			return 1;
 		}
 		yo_origin = readWav(wav, wavelength, channels, Fs);
+	}
+
+	if (Fs < 44100) {
+		wstring resample_path = AddSuffixToPath(path, L"_resample");
+		vector<double> out;
+		convert_wav(yo_origin, Fs, channels, resample_path.c_str());
 	}
 
 	int max_wavelength = Fs * static_cast<int>(end_time - start_time) * channels;
@@ -98,7 +106,7 @@ int new_wm_embed(const wchar_t* path, const wchar_t* save_path, const int* wm, c
 
 	// stage 2 - preparation work for watermark
 	std::vector<int> wm_vector(wm, wm + wm_size);
-	//// 输出结果
+	// 输出结果
 	std::cout << "wm_vector: ";
 	for (int value : wm_vector) {
 		std::cout << value << " ";
@@ -115,14 +123,15 @@ int new_wm_embed(const wchar_t* path, const wchar_t* save_path, const int* wm, c
 	vector<int> w1 = int_tto(w, rows);
 
 	// stage 3 - params init
-	double D		 = 1;
+	//double D		 = 0.8;
 	//double Delta	 = 0.0008;
-	int k1			 = 5;
-	int begin		 = 4095;
-	int block_length = 65536;
-	int i			 = 1;
-	int left		 = i * (Lsyn * k1 + block_length);
-	int right		 = wavelength - (Lsyn * k1 + block_length);
+	int k1				= 5;
+	int begin			= 4095;
+	int block_length	= 65536;
+	int i				= 1;
+	//int left			= i * (Lsyn * k1 + block_length);
+	int right			= wavelength - (Lsyn * k1 + block_length);
+	int barkcode_length = k1 * syn.size();
 	vector<int> t0;
 
 	// stage 4 - start embed
@@ -132,13 +141,13 @@ int new_wm_embed(const wchar_t* path, const wchar_t* save_path, const int* wm, c
 		int bb = begin + (i - 1) * (Lsyn * k1 + block_length);
 		// embed syn code
 		cout << "embed syn code at index: " << bb << endl;
-		for (int mm = 0; mm < Lsyn; mm++)
+		for (int mm = 0; mm < syn.size(); mm++)
 		{
 			vector<double> temp_vec_subsyn;
-			int front = bb + (mm * k1);
+			int front = bb + (mm * k1) + 1;
 			int back = bb + ((mm + 1) * k1);
 			// calculate mean value
-			double tempmean = calculateMean(audio_data, front + 1, back, 0); // front = 4096 back = 4100
+			double tempmean = calculateMean(audio_data, front, back, 0); // front = 4096 back = 4100
 			int temp = static_cast<int>(round(tempmean / D));
 			double tempmeanl;
 			if (((temp) % 2 + 2) % 2 == syn[mm])
@@ -152,6 +161,7 @@ int new_wm_embed(const wchar_t* path, const wchar_t* save_path, const int* wm, c
 			for (int j = front; j <= back; j++)
 			{
 				audio_data[j][0] += tempmeanl - tempmean;
+				audio_data[j + barkcode_length][0] = audio_data[j][0];
 			}
 		}
 		

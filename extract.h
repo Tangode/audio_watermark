@@ -11,12 +11,14 @@
 #include <opencv2/opencv.hpp>
 #include <fftw3.h>
 #include <string>
+#include <Eigen/Dense>
 
 using namespace std;
+using namespace Eigen;
 
-int wm_extract(const wchar_t* path, int* wm);
+int wm_extract(const wchar_t* path, int* wm, int wm_size);
 
-vector<double> PQIMfft_extract(vector<vector<double>> &Gp_w, vector<int> &b, int M, double DD, double EE);
+vector<double> PQIMfft_extract(MatrixXd Gp_w, vector<int> &b, int M, double DD, double EE, int pp);
 
 double drzh(const vector<vector<int>>& ww, vector<vector<int>>& W1, int pp, int qq);
 

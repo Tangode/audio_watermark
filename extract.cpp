@@ -1,6 +1,7 @@
 #include "extract.h"
 #include "util.h"
 #include "embed.h"
+#include "global.h"
 #include <vector>
 #include <iostream>
 #include <cmath>
@@ -18,7 +19,7 @@ using namespace std;
 using namespace cv;
 namespace fs = std::filesystem;
 
-int wm_extract(const wchar_t *path, int *wm)
+int wm_extract(const wchar_t *path, int *wm, int wm_size)
 {
 	fs::path fname = path;
 	vector<double> yw;
@@ -26,8 +27,9 @@ int wm_extract(const wchar_t *path, int *wm)
 	int wavelength;
 	int Fs;
 	int numChannels;
+	//int bitrate;
 	string extract_path = ConvertUTF16ToMBCS(path);
-
+	
 	if (isMp3File(fname, extract_path))
 	{
 		// is mp3 
@@ -36,13 +38,11 @@ int wm_extract(const wchar_t *path, int *wm)
 		Fs = (int)Fs_long;
 	}
 	else {
-		//drwav wav;
 		drwav wav;
 		if (!drwav_init_file(&wav, extract_path.c_str(), nullptr)) {
 			std::cerr << "Error opening WAV file." << std::endl;
 			return 1;
 		}
-
 		yw = readWav(wav, wavelength, numChannels, Fs);
 	}
 
@@ -72,14 +72,14 @@ int wm_extract(const wchar_t *path, int *wm)
 	vector<int> synw = syn;
 	vector<int> temp1 = syn;
 	int Lsyn = syn.size();
-	int pp = 10;
-	int qq = 10;
+	int pp = static_cast<int>(std::sqrt(wm_size));
+	int qq = static_cast<int>(std::sqrt(wm_size));
 	vector<int> b;
 	vector<vector<int>> W1(pp, vector<int>(qq, 0));
 
 	int k1 = 5;
 	double PI = 3.1416;
-	double D = 0.8;
+	//double D = 0.8;
 	double DD = 0.0012;
 	double EE = 0.00002;
 	//int blocklength = pp * qq * 8 * 8; // 32x32 ˮӡ��С
@@ -91,8 +91,8 @@ int wm_extract(const wchar_t *path, int *wm)
 
 	cout << "wavelength: " << wavelength << endl;
 
-	while (k + (i * Lsyn * k1) < wavelength) {
-		while (rela != 0 && (k + Lsyn * k1) < wavelength) {
+	while (k + (i * Lsyn * k1) < wavelength - (Lsyn * k1 + blocklength)) {
+		while (rela != 0 && (k + Lsyn * k1) < wavelength - (Lsyn * k1 + blocklength)) {
 			for (int mm = 0; mm < Lsyn; mm++) {
 				double tempmean = 0.0;
 
@@ -124,10 +124,10 @@ int wm_extract(const wchar_t *path, int *wm)
 	vector<double> bt_temp;
 	vector<vector<double>> bt;
 	vector<int> t1;
-	cout << "t0:" << endl;
+	cout << "t0: (size = " << t0.size() << ")" << endl;
 	printIntSignal(t0, 0);
-	for (int ii = 0; ii < i - 3; ii++) {
-		t1.push_back(t0[ii] + Lsyn * k1);
+	for (int ii = 0; ii < t0.size(); ii++) {
+		t1.push_back(t0[ii] + Lsyn * k1 + 1);
 		if (t1[ii] + blocklength - 1 > wavelength) {
 			W1 = vector<vector<int>>(pp, vector<int>(qq, 1));
 		}
@@ -151,7 +151,8 @@ int wm_extract(const wchar_t *path, int *wm)
 
 			int M = 4 * n;
 
-			vector<vector<double>> Gp_w(M, vector<double>(M, 0.0));
+			//vector<vector<double>> Gp_w(M, vector<double>(M, 0.0));
+			MatrixXd Gp_w(M, M);
 
 			for (int u = 0; u < M; u++) {
 				for (int v = 0; v < M; v++) {
@@ -163,20 +164,19 @@ int wm_extract(const wchar_t *path, int *wm)
 					int row = -kk + (n / 2);
 					int col = ll + (n / 2) - 1;
 
-					Gp_w[u][v] = (I_w1[row][col]) * sqrt(static_cast<double>(u) / (2 * M));
+					Gp_w(u, v) = (I_w1[row][col]) * sqrt(static_cast<double>(u) / (2 * M));
 				}
 			}
-			
-			bt_temp = PQIMfft_extract(Gp_w, b, M, DD, EE);
+			bt_temp = PQIMfft_extract(Gp_w, b, M, DD, EE, pp);
 
 			bt.push_back(bt_temp);
 		}
 	}
-	cout << "t1:" << endl;
+	cout << "t1: (size = " << t1.size() << ")" << endl;
 	printIntSignal(t1, t1.size());
 	// watermark capacity 32*32=1024 16*16=256 10*10=100
-	vector<int> r(100);
-	for (int iii = 0; iii < 100; iii++) {
+	vector<int> r(wm_size);
+	for (int iii = 0; iii < wm_size; iii++) {
 		double sum_bt = 0.0;
 
 		// ���� bt ���к�
@@ -185,25 +185,26 @@ int wm_extract(const wchar_t *path, int *wm)
 		}
 
 		// ���� r(iii)
-		r[iii] = static_cast<int>(round(sum_bt / (bt.size() - 1)));
+		//r[iii] = static_cast<int>(round(sum_bt / 15)) >= 1 ? 1 : 0;
+		r[iii] = static_cast<int>(round(sum_bt / t1.size())) >= 1 ? 1 : 0;
 	}
 
-	for (size_t i = 0; i < r.size(); ++i) {
-		wm[i] = r[i];
-	}
+	//for (size_t i = 0; i < r.size(); ++i) {
+	//	wm[i] = r[i];
+	//}
 
-	W1 = int_ott(r, 10);
+	W1 = int_ott(r, pp);
 
 	vector<vector<int>> W2 = igeneral(W1, pp, qq, 5, 6);
 
-	cout << "\n W1:" << endl;
-	printIntMat(W1);
+	//cout << "\n W1:" << endl;
+	//printIntMat(W1);
 	cout << "\n W2:" << endl;
 	printIntMat(W2);
 	//cout << "\n W:" << endl;
 	//printIntMat(W);
 
-	vector<int> wm_vec = int_tto(W2, 10);
+	vector<int> wm_vec = int_tto(W2, pp);
 
 	//wm = new int[wm_vec.size()];
 
@@ -216,85 +217,63 @@ int wm_extract(const wchar_t *path, int *wm)
 	return 0;
 
 	// todo: ͼ�񱣴�
-
 	//string fname_origin = "D://wm_project/audio/female.mp3";
 	////��ȡ��Ƶ�ļ�
 	//SNDFILE* sndFile_origin;
 	//SF_INFO sfInfo_origin{};
 	//sfInfo_origin.format = 0;
-
 	//sndFile_origin = sf_open(fname_origin.c_str(), SFM_READ, &sfInfo_origin);
-
 	//if (!sndFile_origin) {
 	//	cerr << "Error opening audio file." << endl;
 	//}
-
 	//int origin_numChannels = sfInfo_origin.channels;
-
 	//vector<double> yo;
-
 	//yo.resize(sfInfo_origin.frames * origin_numChannels);
-
 	//sf_read_double(sndFile_origin, yo.data(), sfInfo_origin.frames * numChannels);
-
 	//sf_close(sndFile_origin);
-
 	//double psnr = psnrzh(yw, yo);
-
 	//cout << "psnr:" << psnr << endl;
-
 	//double wsr = getWsr(yw, yo);
-
 	//cout << "wsr:" << wsr << endl;
 }
 
-vector<double> PQIMfft_extract(vector<vector<double>>& Gp_w, vector<int>& b, int M, double DD, double EE)
+vector<double> PQIMfft_extract(MatrixXd Gp_w, vector<int>& b, int M, double DD, double EE, int pp)
 {
-	//const vector<double> key1 = { 0.928193675245596, 0.762097922072739, 0.380267928722993, 0.897730320468743, 0.100822133636870, 0.0899504433067866, 0.239020109274386,
-	//0.946779913782277, 0.0952670768819904, 0.320156919270540, 0.577931144724556, 0.196373121839455, 0.461274061204655, 0.323929634780567, 0.807739985547207, 0.540754730983380,
-	//0.985142082650825, 0.958345377953601, 0.185229603238548, 0.0660488670603961, 0.00835748882788212, 0.433219741512797, 0.501328268578626, 0.684454533009209, 0.0274337980435039,
-	//0.821913355398633, 0.758935114048920, 0.612561055737784, 0.223044160578087, 0.578077449230608, 0.287499282769805, 0.965226733423526, 1.11022302462516e-16, 0, 2.55749847299924e-07 };
-
-	//const vector<double> key2 = { 0.164635665117893, 0.758726063009854, 0.00591829393010890, 0.964050036774166, 0.984922993786984, 0.976826357531615, 0.356700569394344,
-	//0.203547152614262, 0.336560412745046, 0.498445989825352, 0.997342009306155, 0.749864280396276, 0.470142180541784, 0.874301822643799, 0.0868517482511835, 0.895214310591549,
-	//0.583643833047015, 0.694493484576109, 0.884424240366055, 0.919066545678925, 0.790112074974144, 0.647724940400028, 0.363864662192446, 0.879399867540293, 0.249724426967429,
-	//0.134744306769869, 0.248274963641751, 0.0776257270260381, 0.143523293499973, 0.263989850166916, 0.892556319897704, 0.333508113443291, 1.11022302462516e-16, 3.33066907387547e-15,
-	//4.52511162984948e-07 };
-
 	//int L = b.size();
-	int L = 100;
+	int L = pp * pp;
 
-	const int Nmax = 20;
-	const int size = 2 * Nmax + 1;
-	const int total_elements_32 = size * size;
-
+	int Nmax = 20;
+	if (pp == 32)
+		Nmax = 40;
+	int size = 2 * Nmax + 1;
+	int total_elements_32 = size * size;
 	vector<complex<double>> A_nm(total_elements_32, (0, 0));
 	vector<vector<int>> zmlist(total_elements_32, vector<int>(2, 0));
-	// ָ���صķֽ�
+
 	zhishujufenjie62(Gp_w, M, Nmax, A_nm, zmlist);
 
 	vector<int> index_selected_extract(L);
-	// �����������
 	vector<int> index_suitable;
-
 	vector<complex<double>> A_nm_selected_extract(L, 0.0);
-
 	vector<double> b_extract(L, 0.0);
 
 	for (int i = 0; i < zmlist.size(); i++) {
 		int index_n_temp = zmlist[i][0];
 		int index_m_temp = zmlist[i][1];
-
-		// 10*10/16*16 embed range
-		if (((index_m_temp == 0) && (index_n_temp < 0)) ||
-			((index_m_temp > 0) && (index_m_temp <= 10) && (-4 <= index_n_temp) && (index_n_temp <= 4))) {
-			index_suitable.push_back(i);
+		if (pp == 32) {
+			// 32*32 embed range
+			if (((index_m_temp == 0) && (index_n_temp < 0)) ||
+				((index_m_temp > 0) && (index_m_temp <= 30) && (-16 <= index_n_temp) && (index_n_temp <= 16))) {
+				index_suitable.push_back(i);
+			}
 		}
-		// 32*32 embed range
-		/*if (((index_m_temp == 0) && (index_n_temp < 0)) ||
-			((index_m_temp > 0) && (index_m_temp <= 30) && (-16 <= index_n_temp) && (index_n_temp <= 16))) {
-			index_suitable.push_back(i);
-		}*/
+		else {
+			// 10*10/16*16 embed range
+			if (((index_m_temp == 0) && (index_n_temp < 0)) ||
+				((index_m_temp > 0) && (index_m_temp <= 10) && (-4 <= index_n_temp) && (index_n_temp <= 4))) {
+				index_suitable.push_back(i);
+			}
+		}
 	}
 
 	for (int i = 0; i < L; i++)

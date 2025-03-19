@@ -168,9 +168,10 @@ void fft2(Mat& input, Mat& output, bool invert = false, bool normalize = false)
     //}
 }
 
-void zhishujufenjie62(vector<vector<double>>& Gp, int M, int Nmax, vector<complex<double>>& A_nm, vector<vector<int>>& zmlist) {
-    int rows = Gp.size();
-    int cols = Gp[0].size();
+void zhishujufenjie62(MatrixXd Gp, int M, int Nmax, vector<complex<double>>& A_nm, vector<vector<int>>& zmlist) {
+    //int rows = Gp.size();
+    int rows = static_cast<int>(sqrt(Gp.size()));
+    int cols = rows;
     const int size = 2 * Nmax + 1;
     // Allocate FFTW complex arrays
     fftw_complex* in = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * rows * cols);
@@ -178,7 +179,7 @@ void zhishujufenjie62(vector<vector<double>>& Gp, int M, int Nmax, vector<comple
     // Copy input data to FFTW format
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
-            in[i * cols + j][0] = Gp[i][j]; // Real part
+            in[i * cols + j][0] = Gp(i, j); // Real part
             in[i * cols + j][1] = 0.0;      // Imaginary part
         }
     }
@@ -193,7 +194,8 @@ void zhishujufenjie62(vector<vector<double>>& Gp, int M, int Nmax, vector<comple
     vector<vector<complex<double>>> Gp_fft(rows, vector<complex<double>>(cols, complex<double>(0, 0)));
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
-            Gp_fft[i][j] = complex<double>(out[i * cols + j][0], in[i * cols + j][1]);
+            //Gp_fft[i][j] = complex<double>(out[i * cols + j][0], in[i * cols + j][1]);
+            Gp_fft[i][j] = complex<double>(out[i * cols + j][0], out[i * cols + j][1]);
         }
     }
     // Cleanup
@@ -291,11 +293,13 @@ void save_audio_drmp3(const wchar_t* outputFilename, vector<double>& yo, int sam
     lame_set_in_samplerate(lame, sampleRate);
     lame_set_num_channels(lame, channels);
     lame_set_out_samplerate(lame, sampleRate);
+    //lame_set_brate(lame, bitrate);
     lame_set_quality(lame, 5); // 0-9, 5是中等质量
     lame_init_params(lame);
 
     // 打开输出文件
-    FILE* mp3File = _wfopen(outputFilename, L"wb");
+    FILE* mp3File = nullptr;
+    errno_t err = _wfopen_s(&mp3File, outputFilename, L"wb");
     if (!mp3File) {
         std::cerr << "cann't open file: " << outputFilename << std::endl;
         lame_close(lame);
@@ -370,6 +374,10 @@ vector<double> mp3ToDoubleVector(const char* mp3File, int &channels, long &rate,
 
     mpg123_getformat(mh, &rate, &channels, &encoding);
 
+    // 获取比特率
+    //mpg123_frameinfo2 id3v2;
+    //mpg123_info2(mh, &id3v2);
+    //bitrate = id3v2.bitrate;
     std::vector<double> audioData;
     unsigned char buffer[4096];
     size_t done;
@@ -576,4 +584,14 @@ wstring string_to_wstring(const std::string& str) {
     std::wstring wstr(size_needed, 0);
     MultiByteToWideChar(CP_UTF8, 0, str.c_str(), (int)str.size(), &wstr[0], size_needed);
     return wstr;
+}
+
+bool allEqual(const vector<double>& vec1, const vector<double>& vec2) {
+    if (vec1.size() != vec2.size())
+        return false;
+    for (size_t i = 0; i < vec1.size(); i++) {
+        if (vec1[i] != vec2[i])
+            return false;
+    }
+    return true;
 }

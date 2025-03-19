@@ -6,10 +6,12 @@
 #include <iostream>
 #include <opencv2/opencv.hpp>
 #include <filesystem>
+#include <Eigen/Dense>
 
 using namespace std;
 using namespace cv;
 namespace fs = std::filesystem;
+using namespace Eigen;
 
 
 struct WAVHeader {
@@ -48,7 +50,7 @@ void fft1d(vector<complex<double>>& data, bool invert);
 
 void fft2(Mat& input, Mat& output, bool invert, bool normalize);
 
-void zhishujufenjie62(std::vector<std::vector<double>> &Gp, int M, int Nmax, vector<complex<double>> &A_nm, vector<vector<int>> &zmlist);
+void zhishujufenjie62(MatrixXd Gp, int M, int Nmax, vector<complex<double>> &A_nm, vector<vector<int>> &zmlist);
 
 //void printMessage(vector<string> &msg);
 
@@ -83,3 +85,5 @@ void resample(const float* inputBuffer, size_t inputSize, float* outputBuffer, s
 void convert_wav(vector<double>& inputBuffer, int& inputRate, int channels, const wchar_t* outputPath);
 
 wstring AddSuffixToPath(const wchar_t* originalPath, const wstring& suffix);
+
+bool allEqual(const vector<double>& vec1, const vector<double>& vec2);
